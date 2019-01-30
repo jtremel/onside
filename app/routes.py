@@ -28,15 +28,16 @@ def search():
 
     return render_template('search.html', title='Grab Video', form=form)
 
-
-def gen(videostream):
-    while True:
-        frame = videostream.get_frame()
-        yield (b'--frame\r\n'
-        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
-
 @app.route('/stream', methods=['GET'])
 def stream():    
     userStream = request.args.get('url')
-    return Response(gen(VideoStream(userStream)),
+    return Response(VideoStream(userStream).process_stream(),
     mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+#def gen(vs):
+#    while True:
+#        frame = vs.get_frame()
+#        yield (b'--frame\r\n'
+#        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+

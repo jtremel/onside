@@ -11,21 +11,16 @@ from imutils.video import FPS
 import tensorflow as tf
 from app import label_map_util # this is from tensorflow
 
-
-
-
 #from collections import defaultdict
 #from io import StringIO
 #from matplotlib import pyplot as plt
 #from PIL import Image
 
-
-
 #~~~~~~ VARIOUS SETTINGS ~~~~~~~~#
 # What model to download.
 MODEL_NAME = 'ssd_mobilenet_v1_coco_2017_11_17'
 # Path to frozen detection graph. This is the actual model that is used for the object detection.
-PATH_TO_FROZEN_GRAPH = MODEL_NAME + '/frozen_inference_graph.pb'
+PATH_TO_FROZEN_GRAPH = 'model/' + MODEL_NAME + '/frozen_inference_graph.pb'
 # List of the strings that is used to add correct label for each box.
 PATH_TO_LABELS = 'model/mscoco_label_map.pbtxt'
 
@@ -179,7 +174,7 @@ with detection_graph.as_default():
                     if success:
                         (x, y, w, h) = [int(v) for v in box]
                         cv2.rectangle(frame, (x, y), (x + w, y + h),
-                            (0, 255, 0), 2)
+                            (255, 0, 0), 3)
 
                     # initialize the set of information we'll be displaying on
                     # the frame
