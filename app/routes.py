@@ -1,0 +1,42 @@
+from flask import render_template, flash, redirect, url_for, Response, request
+from app import app
+from app.forms import URLForm
+
+
+import sys
+
+from app.videostream import VideoStream
+
+
+#https://www.youtube.com/watch?v=iQvSrXIpw1k
+
+
+@app.route('/')
+@app.route('/index')
+def index():
+    return render_template('index.html', title = 'Home')#, url=url)
+
+@app.route('/search', methods=['GET', 'POST'])
+def search():
+    form = URLForm()
+    if form.validate_on_submit():
+        url=request.form['url']
+        if url != None:
+            return redirect(url_for('stream', url = url))
+        else:
+            return redirect(url_for('search'))
+
+    return render_template('search.html', title='Grab Video', form=form)
+
+
+def gen(videostream):
+    while True:
+        frame = videostream.get_frame()
+        yield (b'--frame\r\n'
+        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+
+@app.route('/stream', methods=['GET'])
+def stream():    
+    userStream = request.args.get('url')
+    return Response(gen(VideoStream(userStream)),
+    mimetype='multipart/x-mixed-replace; boundary=frame')
