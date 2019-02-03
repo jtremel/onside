@@ -4,22 +4,29 @@ import tensorflow as tf
 import numpy as np
 from app.model import label_map_util
 
+
+import sys
+import time
+
+
 class VideoStream(object):
-        
+    
+
     sUrlname = None
     sModelName = 'ssd_mobilenet_v1_coco_2017_11_17'
     sPathToFrozenGraph = 'app/model/' + sModelName + '/frozen_inference_graph.pb'
     sPathToLabels = 'app/model/mscoco_label_map.pbtxt'
     sTrackerName = "csrt"
     fThresholdScore = 0.6
-    nMaxFramesDropped = 10
+    nMaxFramesDropped = 5
     nFrameRate = 30
     oResolution = (1280, 720)
 
     oObjectTrackers = {
         "csrt": cv2.TrackerCSRT_create,
         "kcf": cv2.TrackerKCF_create,
-        "mosse": cv2.TrackerMOSSE_create
+        "mosse": cv2.TrackerMOSSE_create,
+        "mil": cv2.TrackerMIL_create
     }
 
     _oTracker = None
@@ -30,7 +37,13 @@ class VideoStream(object):
     _nBallClassId = 37
     _oDetectionGraph = None
     _oVideo = None
-    
+    _cachedFrame = None
+    _nTotalFrames = 0
+    _nTotalFramesDropped = 0
+
+    _bValidate = False
+    _bProfile = True
+
     def __init__(self,url):
         sUrlname = url
         video = pafy.new(url)
@@ -63,6 +76,15 @@ class VideoStream(object):
                     bReadSuccess, frame = self._oVideo.read()
 
                     if bReadSuccess:
+                        
+                        self._nTotalFrames += 1
+
+                        if self._nTotalFrames > 1:
+                            if self._detectCameraChange(self._cachedFrame, frame):
+                                self._bIsFirstFrame = True
+                                self._boundingBox = None
+
+                        self._cachedFrame = frame
 
                         # Initial Detection
                         if self._bIsFirstFrame:
@@ -91,8 +113,8 @@ class VideoStream(object):
                             detectionScoresOfInterest = []
                             for item in enumerate(classes):
                                 if ( item[1] == self._nBallClassId and
-                                    scores[item[0]] > self.fThresholdScore and
-                                    self._check_box_bounds(boxes[item[0]])
+                                    scores[item[0]] > self.fThresholdScore# and
+                                    #self._check_box_bounds(boxes[item[0]])
                                 ):
                                     detectionBoxesOfInterest.append(boxes[item[0]])
                                     detectionClassesOfInterst.append(classes[item[0]])
@@ -131,7 +153,7 @@ class VideoStream(object):
 
                                 # This is color and box drawing stuff here:
                                 cv2.rectangle(frame, (x, y), (x+w, y+h),
-                                    (255, 0, 0), 3)
+                                    (66, 223, 244), 6)
 
                             # init info to display
                             info = [
@@ -161,28 +183,40 @@ class VideoStream(object):
                             
                         # Show output frame
                         #cv2.imshow("Live Detection", frame)
+                        if self._bValidate:
+                            if len(boxes) == 0 or bTrackSuccess == False:
+                                self._nTotalFramesDropped += 1
+
+                            if self._nTotalFrames % 20 == 0:
+                                print('Total Frames = {}'.format(self._nTotalFrames), file=sys.stdout)
+                                print('Total Frames Dropped = {}'.format(self._nTotalFramesDropped), file = sys.stdout)
+
                         bEncodeSuccess, jpeg = cv2.imencode('.jpg', frame)
                         frame = jpeg.tobytes()
                         yield (b'--frame\r\n'
                         b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
 
-#                    else:
-#                        vidCapture.release()
-#                        cv2.destroyAllWindows()
+    def _detectCameraChange(self, image1, image2):
+        mean1, sd1 = cv2.meanStdDev(image1)
+        mean2, sd2 = cv2.meanStdDev(image2)
+        dif = sd1[[0]] - sd2[[0]]
+        if abs(dif) > 3:
+            if self._bValidate:
+                print('Camera Shot Change Detected! {}'.format(dif), file=sys.stdout)
+            return True
+        else:
+            return False
 
-
-
-    
     def _get_frame(self):
         success, image = self._oVideo.read()
         ret, jpeg = cv2.imencode('.jpg', image)
         return jpeg.tobytes()
     
     def _check_box_bounds(self, box):
-        if any(box < 0.05):
+        if any(box < 0.01):
             return False
-        elif any(box > 0.95):
+        elif any(box > 0.99):
             return False
         else:
             return True

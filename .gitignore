@@ -28,5 +28,6 @@ ehthumbs.db
 
 *.mp4
 *.pyc
+*.pem
 
 app/model/

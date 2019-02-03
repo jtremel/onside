@@ -1,18 +1,48 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h1> Enter the URL of the video to run in Onside:</h1>
+
+<style media="screen" type="text/css">
+    input[type=submit] {
+        width: 38em; 
+        height: 3em;
+        font-size: 14;
+    }
+    input[type="text"]{
+        width: 40em;
+        line-height: 2em;
+    }
+    body{text-align: center}
+</style>
+    <h1> Stream video from YouTube with Onside:</h1>
     <form action="search" method="POST" novalidate>
         {{ form.hidden_tag() }}
         <p>
             {{ form.url.label }}<br>
-            {{ form.url(size=32) }}
+            {{ form.url }}
             {% for error in form.url.errors %}
+            <br>
             <span style="color: red;">[{{ error }}]</span>
             {% endfor %}
         </p>
         <p>
             {{ form.submit() }}
+            <br><br><br><br><br><br>
         </p>
     </form>
+    <h2>Or try one of these examples: </h2>
+        <p>
+            <div id ="examples">
+            <style type="text/css">
+                #examples a:link {
+                    display: block;
+                    font-weight: normal;
+                    font-size: 18px;
+                }
+            </style>    
+            <a href="{{ url_for('stream', url = 'https://www.youtube.com/watch?v=iQvSrXIpw1k') }}"> Seattle Sounders goal highlights </a><br> 
+            <a href="{{ url_for('stream', url = 'https://www.youtube.com/watch?v=Ix97CZvelmE') }}"> Soccer slow-motion reel </a><br> 
+            <a href="{{ url_for('stream', url = 'https://www.youtube.com/watch?v=LSqYi1mMxts') }}"> USL soccer highlights </a><br> 
+            </div>
+        </p>
 {% endblock %}

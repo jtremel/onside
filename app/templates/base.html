@@ -7,9 +7,16 @@
         {% endif %}
     </head>
     <body>
-        <div> Onside: 
-            <a href="{{ url_for('index') }}">Home</a>
-            <a href="{{ url_for('search') }}">Enter a Video</a>
+        <div> <b>Onside | </b> 
+            <style media="screen" type="text/css">
+                a:link {
+                    margin-left: 10px;
+                    font-weight: bold;
+                    font-size: 16;
+                }
+            </style>
+            <a href="{{ url_for('index') }}"> Home </a> 
+            <a href="{{ url_for('search') }}"> Stream </a>
         </div>
         <hr>
         {% with messages = get_flashed_messages() %}
