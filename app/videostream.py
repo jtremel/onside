@@ -3,15 +3,13 @@ import pafy
 import tensorflow as tf
 import numpy as np
 from app.model import label_map_util
-
+import time
+from app.FileVideoStream import FileVideoStream
 
 import sys
-import time
-
 
 class VideoStream(object):
     
-
     sUrlname = None
     sModelName = 'ssd_mobilenet_v1_coco_2017_11_17'
     sPathToFrozenGraph = 'app/model/' + sModelName + '/frozen_inference_graph.pb'
@@ -37,12 +35,11 @@ class VideoStream(object):
     _nBallClassId = 37
     _oDetectionGraph = None
     _oVideo = None
-    _cachedFrame = None
     _nTotalFrames = 0
     _nTotalFramesDropped = 0
+    _cachedSD = 0
 
     _bValidate = False
-    _bProfile = True
 
     def __init__(self,url):
         sUrlname = url
@@ -54,40 +51,25 @@ class VideoStream(object):
         self._oCategoryIndex = self._load_category_map(self.sPathToLabels)
         self._oTracker = self.oObjectTrackers[self.sTrackerName]()
 
-        self._oVideo = cv2.VideoCapture()
-        self._oVideo.open(playurl)
-
-
-    def __del__(self):
-        self._oVideo.release()
-
-    def process(self):
-        while True:
-            frame = self._get_frame()
-            yield (b'--frame\r\n'
-            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
-
+        self._oVideo = FileVideoStream(path = playurl).start()
 
     def process_stream(self):
         with self._oDetectionGraph.as_default():
             with tf.Session(graph=self._oDetectionGraph) as sess:
-                while (self._oVideo.isOpened()):
+                while (self._oVideo.more()):
+                    frame = self._oVideo.read()
 
-                    bReadSuccess, frame = self._oVideo.read()
-
-                    if bReadSuccess:
-                        
+                    if frame is not None:
                         self._nTotalFrames += 1
 
                         if self._nTotalFrames > 1:
-                            if self._detectCameraChange(self._cachedFrame, frame):
+                            if self._detectCameraChange(frame):
                                 self._bIsFirstFrame = True
                                 self._boundingBox = None
 
-                        self._cachedFrame = frame
-
                         # Initial Detection
                         if self._bIsFirstFrame:
+
                             imageTensor = self._oDetectionGraph.get_tensor_by_name('image_tensor:0')
                             detectionBoxes = self._oDetectionGraph.get_tensor_by_name('detection_boxes:0')
                             detectionScores = self._oDetectionGraph.get_tensor_by_name('detection_scores:0')
@@ -108,44 +90,30 @@ class VideoStream(object):
                             boxes = np.squeeze(boxes)
                             scores = np.squeeze(scores)
 
-                            detectionBoxesOfInterest = []
-                            detectionClassesOfInterst = []
-                            detectionScoresOfInterest = []
-                            for item in enumerate(classes):
-                                if ( item[1] == self._nBallClassId and
-                                    scores[item[0]] > self.fThresholdScore# and
-                                    #self._check_box_bounds(boxes[item[0]])
-                                ):
-                                    detectionBoxesOfInterest.append(boxes[item[0]])
-                                    detectionClassesOfInterst.append(classes[item[0]])
-                                    detectionScoresOfInterest.append(scores[item[0]])
-
-                                    # Take only the highest confidence object
-                                    break
-
-                            boxes = np.asarray(detectionBoxesOfInterest)
-                            classes = np.asarray(detectionClassesOfInterst)
-                            scores = np.asarray(detectionScoresOfInterest)
-
-                            if len(boxes) == 0:
+                            # Filter categories
+                            idx = np.unravel_index(
+                                (classes == self._nBallClassId).argmax(), classes.shape)[0]
+                            
+                            if (idx == 0) or scores[idx] < self.fThresholdScore:
                                 self._bIsFirstFrame = True
                                 self._boundingBox = None
                             else:
+                                boxes = boxes[idx]
                                 self._boundingBox = self._get_bounding_box_coordinates(
-                                    boxes[0],
-                                    self.oResolution[0],
-                                    self.oResolution[1],
+                                    boxes,
+                                    self.oResolution[0], self.oResolution[1],
                                     False
                                 )
                                 self._oTracker = self.oObjectTrackers[self.sTrackerName]()
                                 self._oTracker.init(frame, self._boundingBox)
                                 self._bIsFirstFrame = False
 
-                        # resize frame if needed: frame = imutils.resize(frame, width =500)
+
                         (H, W) = frame.shape[:2]
 
                         # check to see if we are currently tracking
                         if self._boundingBox is not None:
+                            
                             (bTrackSuccess, box) = self._oTracker.update(frame)
 
                             if bTrackSuccess:
@@ -173,7 +141,7 @@ class VideoStream(object):
                                     (0,255,0), 
                                     2
                                 )
-                            
+
                             if not bTrackSuccess:
                                 self._nFramesDropped += 1
 
@@ -182,7 +150,6 @@ class VideoStream(object):
                                 self._nFramesDropped = 0
                             
                         # Show output frame
-                        #cv2.imshow("Live Detection", frame)
                         if self._bValidate:
                             if len(boxes) == 0 or bTrackSuccess == False:
                                 self._nTotalFramesDropped += 1
@@ -197,10 +164,10 @@ class VideoStream(object):
                         b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
 
-    def _detectCameraChange(self, image1, image2):
-        mean1, sd1 = cv2.meanStdDev(image1)
-        mean2, sd2 = cv2.meanStdDev(image2)
-        dif = sd1[[0]] - sd2[[0]]
+    def _detectCameraChange(self, image):
+        mean, sd = cv2.meanStdDev(image)
+        dif = sd[[0]] - self._cachedSD
+        self._cachedSD = sd[[0]]
         if abs(dif) > 3:
             if self._bValidate:
                 print('Camera Shot Change Detected! {}'.format(dif), file=sys.stdout)
@@ -208,18 +175,16 @@ class VideoStream(object):
         else:
             return False
 
+    def streamRawVideo(self):
+        while True:
+            frame = self._get_frame()
+            yield (b'--frame\r\n'
+            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+
     def _get_frame(self):
         success, image = self._oVideo.read()
         ret, jpeg = cv2.imencode('.jpg', image)
         return jpeg.tobytes()
-    
-    def _check_box_bounds(self, box):
-        if any(box < 0.01):
-            return False
-        elif any(box > 0.99):
-            return False
-        else:
-            return True
     
     def _get_bounding_box_coordinates(self, box, imgW, imgH, bSquare):
         xstart = box[1]*imgW
