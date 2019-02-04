@@ -4,21 +4,25 @@ import tensorflow as tf
 import numpy as np
 from app.model import label_map_util
 import time
-from app.FileVideoStream import FileVideoStream
 
 import sys
 
 class VideoStream(object):
     
-    sUrlname = None
     sModelName = 'ssd_mobilenet_v1_coco_2017_11_17'
     sPathToFrozenGraph = 'app/model/' + sModelName + '/frozen_inference_graph.pb'
     sPathToLabels = 'app/model/mscoco_label_map.pbtxt'
+    sModelName = "ssd_mobilenet_v1_coco_2018_01_28"
+    
+    sPluginDir = "/opt/intel/compute_vision_sdk/inference_engine/lib/ubuntu_18.04/intel64/"
+    sPluginCpuExt = "/home/josh/inference_engine_samples_build/intel64/Release/lib/libcpu_extension.so"
     sTrackerName = "csrt"
     fThresholdScore = 0.6
-    nMaxFramesDropped = 5
+    nMaxFramesDropped = 2
+    
     nFrameRate = 30
-    oResolution = (1280, 720)
+    nResolutionWidth = 1280
+    nResolutionHeight = 720
 
     oObjectTrackers = {
         "csrt": cv2.TrackerCSRT_create,
@@ -28,6 +32,8 @@ class VideoStream(object):
     }
 
     _oTracker = None
+    _oPlugin = None
+
     _boundingBox = None
     _oCategoryIndex = dict()
     _nFramesDropped = 0
@@ -41,8 +47,7 @@ class VideoStream(object):
 
     _bValidate = False
 
-    def __init__(self,url):
-        sUrlname = url
+    def __init__(self, url):
         video = pafy.new(url)
         best = video.getbest(preftype="mp4")
         playurl = best.url
@@ -51,21 +56,24 @@ class VideoStream(object):
         self._oCategoryIndex = self._load_category_map(self.sPathToLabels)
         self._oTracker = self.oObjectTrackers[self.sTrackerName]()
 
-        self._oVideo = FileVideoStream(path = playurl).start()
-
+        self._oVideo = cv2.VideoCapture()
+        self._oVideo.open(playurl)
+        
     def process_stream(self):
         with self._oDetectionGraph.as_default():
             with tf.Session(graph=self._oDetectionGraph) as sess:
-                while (self._oVideo.more()):
-                    frame = self._oVideo.read()
+                while (self._oVideo.isOpened()):
+                    bReadSuccess, frame = self._oVideo.read()
 
-                    if frame is not None:
+                    if bReadSuccess:
                         self._nTotalFrames += 1
 
                         if self._nTotalFrames > 1:
                             if self._detectCameraChange(frame):
                                 self._bIsFirstFrame = True
                                 self._boundingBox = None
+                        else:
+                            self.nResolutionHeight, self.nResolutionWidth = frame.shape[:2]
 
                         # Initial Detection
                         if self._bIsFirstFrame:
@@ -80,12 +88,9 @@ class VideoStream(object):
 
                             # Detect
                             (boxes, scores, classes, num) = sess.run(
-                                [detectionBoxes,
-                                detectionScores,
-                                detectionClasses,
-                                nDetections],
+                                [detectionBoxes, detectionScores, detectionClasses, nDetections],
                                 feed_dict = {imageTensor: frameExpanded})
-                            
+                           
                             classes = np.squeeze(classes).astype(np.int32)
                             boxes = np.squeeze(boxes)
                             scores = np.squeeze(scores)
@@ -101,14 +106,13 @@ class VideoStream(object):
                                 boxes = boxes[idx]
                                 self._boundingBox = self._get_bounding_box_coordinates(
                                     boxes,
-                                    self.oResolution[0], self.oResolution[1],
+                                    self.nResolutionWidth, self.nResolutionHeight,
                                     False
                                 )
                                 self._oTracker = self.oObjectTrackers[self.sTrackerName]()
                                 self._oTracker.init(frame, self._boundingBox)
                                 self._bIsFirstFrame = False
-
-
+        
                         (H, W) = frame.shape[:2]
 
                         # check to see if we are currently tracking
@@ -121,26 +125,21 @@ class VideoStream(object):
 
                                 # This is color and box drawing stuff here:
                                 cv2.rectangle(frame, (x, y), (x+w, y+h),
-                                    (66, 223, 244), 6)
+                                    (66, 223, 244), 8)
 
                             # init info to display
-                            info = [
-                                ("Method", self.sTrackerName),
-                                ("Tracked", "Yes" if bTrackSuccess else "No")
-                            ]
-
+                            #info = [
+                            #    ("Method", self.sTrackerName),
+                            #    ("Tracked", "Yes" if bTrackSuccess else "No")
+                            #]
+                            #
                             # draw stuff on the frame
-                            for (i, (k, v)) in enumerate(info):
-                                text = "{}: {}".format(k,v)
-                                cv2.putText(
-                                    frame,
-                                    text,
-                                    (10, H - ((i * 20) + 20)),
-                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                    0.6,
-                                    (0,255,0), 
-                                    2
-                                )
+                            #for (i, (k, v)) in enumerate(info):
+                            #    text = "{}: {}".format(k,v)
+                            #    cv2.putText(
+                            #        frame, text, (10, H - ((i * 20) + 20)),
+                            #        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2
+                            #    )
 
                             if not bTrackSuccess:
                                 self._nFramesDropped += 1
@@ -151,10 +150,10 @@ class VideoStream(object):
                             
                         # Show output frame
                         if self._bValidate:
-                            if len(boxes) == 0 or bTrackSuccess == False:
+                            if self._boundingBox is not None or not bTrackSuccess:
                                 self._nTotalFramesDropped += 1
 
-                            if self._nTotalFrames % 20 == 0:
+                            if self._nTotalFrames % 30 == 0:
                                 print('Total Frames = {}'.format(self._nTotalFrames), file=sys.stdout)
                                 print('Total Frames Dropped = {}'.format(self._nTotalFramesDropped), file = sys.stdout)
 
