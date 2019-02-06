@@ -16,8 +16,9 @@ class VideoStream(object):
     sModelBin = sModelPath + sModelName + "/frozen_inference_graph.bin"
     sModelLabels = sModelPath + "mscoco_label_map.pbtxt"
 
-    sPluginDir = "/opt/intel/compute_vision_sdk/inference_engine/lib/ubuntu_18.04/intel64/"
-    sPluginCpuExt = "/home/josh/inference_engine_samples_build/intel64/Release/lib/libcpu_extension.so"
+    sPluginDir = "/opt/intel/computer_vision_sdk/inference_engine/lib/ubuntu_18.04/intel64/"
+#    sPluginCpuExt = "/home/josh/inference_engine_samples_build/intel64/Release/lib/libcpu_extension.so"
+    sPluginCpuExt = "/home/ubuntu/inference_engine_samples_build/intel64/Release/lib/libcpu_extension.so"
     sTrackerName = "csrt"
     fThresholdScore = 0.6
     nMaxFramesDropped = 2
