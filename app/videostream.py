@@ -42,7 +42,6 @@ class VideoStream(object):
     _oNetOutputs = None
     
     _boundingBox = None
-    _oCategoryIndex = dict()
     _nFramesDropped = 0
     _bIsFirstFrame = True
     _nBallClassId = 37
@@ -53,6 +52,8 @@ class VideoStream(object):
     _cachedSD = 0
 
     _bSquaredBox = False
+    _nBoundingBoxLineSize = 10
+    _oBoundingBoxColor = (66, 223, 244)
 
     _n = 0
     _c = 0
@@ -82,7 +83,7 @@ class VideoStream(object):
         supported_layers = self._oPlugin.get_supported_layers(net)
         not_supported_layers = [l for l in net.layers.keys() if l not in supported_layers]
         if (len (not_supported_layers) != 0):
-            # catch exception here, but for now:
+            # TODO: exception here, but hard exit for now:
             print('unsupported layers found {}'.format(len(not_supported_layers)), file=sys.stdout)
             sys.exit(1)
         self._oNetInputs = next(iter(net.inputs))
@@ -91,9 +92,6 @@ class VideoStream(object):
         self._n, self._c, self._h, self._w = net.inputs[self._oNetInputs].shape
 
     def process_stream(self):
-        #with self._oDetectionGraph.as_default():
-        #    with tf.Session(graph=self._oDetectionGraph) as sess:
-
         while (self._oVideo.isOpened()):
             bReadSuccess, frame = self._oVideo.read()
 
@@ -107,16 +105,8 @@ class VideoStream(object):
                 else:
                     self.nResolutionHeight, self.nResolutionWidth = frame.shape[:2]
 
-                # Initial Detection
+                # Run Detection
                 if self._bIsFirstFrame:
-                    #imageTensor = self._oDetectionGraph.get_tensor_by_name('image_tensor:0')
-                    #detectionBoxes = self._oDetectionGraph.get_tensor_by_name('detection_boxes:0')
-                    #detectionScores = self._oDetectionGraph.get_tensor_by_name('detection_scores:0')
-                    #detectionClasses = self._oDetectionGraph.get_tensor_by_name('detection_classes:0')
-                    #nDetections = self._oDetectionGraph.get_tensor_by_name('num_detections:0')
-
-                    #frameExpanded = np.expand_dims(frame, axis=0)
-
                     frameInput = cv2.resize(frame, (self._w, self._h))
                     frameInput = frameInput.transpose((2,0,1))
                     frameInput = frameInput.reshape((
@@ -127,17 +117,9 @@ class VideoStream(object):
                     self._oNetwork.start_async(request_id=0, inputs={
                         self._oNetInputs: frameInput
                     })
-
-#                    (boxes, scores, classes, num) = sess.run(
-#                        [detectionBoxes, detectionScores, detectionClasses, nDetections],
-#                        feed_dict = {imageTensor: frameExpanded})
                     
-#                    classes = np.squeeze(classes).astype(np.int32)
-#                    boxes = np.squeeze(boxes)
-#                    scores = np.squeeze(scores)
-
                     # Filter categories
-                    ### TODO: This is a ridiculously inefficient approach:
+                    # TODO: Fix, this is inefficient:
                     if self._oNetwork.requests[0].wait(-1) == 0:
                         res = self._oNetwork.requests[0].outputs[self._oNetOutputs]
                         bDetected = False
@@ -169,51 +151,20 @@ class VideoStream(object):
                         if not bDetected:
                             self._bIsFirstFrame = True
                             self._boundingBox = None
-#
-#                    idx = np.unravel_index(
-#                        (classes == self._nBallClassId).argmax(), classes.shape)[0]
-#                    
-#                    if (idx == 0) or scores[idx] < self.fThresholdScore:
-#                        self._bIsFirstFrame = True
-#                        self._boundingBox = None
-#                    else:
-#                        boxes = boxes[idx]
-#                        self._boundingBox = self._get_bounding_box_coordinates(
-#                            boxes,
-#                            self.oResolution[0], self.oResolution[1],
-#                            False
-#                        )
-#                        self._oTracker = self.oObjectTrackers[self.sTrackerName]()
-#                        self._oTracker.init(frame, self._boundingBox)
-#                        self._bIsFirstFrame = False
-#
-#                (H, W) = frame.shape[:2]
 
-                # check to see if we are currently tracking
+                # Tracking
                 if self._boundingBox is not None:
-                    
                     (bTrackSuccess, box) = self._oTracker.update(frame)
 
                     if bTrackSuccess:
                         (x, y, w, h) = [int(v) for v in box]
 
-                        # This is color and box drawing stuff here:
-                        cv2.rectangle(frame, (x, y), (x+w, y+h),
-                            (66, 223, 244), 8)
-
-                    # init info to display
-                    #info = [
-                    #    ("Method", self.sTrackerName),
-                    #    ("Tracked", "Yes" if bTrackSuccess else "No")
-                    #]
-                    #
-                    # draw stuff on the frame
-                    #for (i, (k, v)) in enumerate(info):
-                    #    text = "{}: {}".format(k,v)
-                    #    cv2.putText(
-                    #        frame, text, (10, H - ((i * 20) + 20)),
-                    #        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2
-                    #    )
+                        # Draw bounding box:
+                        cv2.rectangle(
+                            frame, (x, y), (x+w, y+h),
+                            self._oBoundingBoxColor, 
+                            self._nBoundingBoxLineSize
+                        )
 
                     if not bTrackSuccess:
                         self._nFramesDropped += 1
@@ -236,7 +187,6 @@ class VideoStream(object):
                 yield (b'--frame\r\n'
                 b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
 
-
     def _detectCameraChange(self, image):
         mean, sd = cv2.meanStdDev(image)
         dif = sd[[0]] - self._cachedSD
@@ -258,32 +208,3 @@ class VideoStream(object):
         success, image = self._oVideo.read()
         ret, jpeg = cv2.imencode('.jpg', image)
         return jpeg.tobytes()
-    
-    def _get_bounding_box_coordinates(self, box, imgW, imgH, bSquare):
-        xstart = box[1]*imgW
-        ystart = box[0]*imgH
-        width = box[3]*imgW - box[1]*imgW
-        height = box[2]*imgH - box[0]*imgH
-            
-        if bSquare:
-            width = min(width, height)
-            height = width
-        
-        out = (xstart, ystart, width, height)
-        return out
-
-    def _load_model(self, path_to_frozen_graph):
-        detection_graph = tf.Graph()
-        with detection_graph.as_default():
-            od_graph_def = tf.GraphDef()
-            with tf.gfile.GFile(path_to_frozen_graph, 'rb') as fid:
-                serialized_graph = fid.read()
-                od_graph_def.ParseFromString(serialized_graph)
-                tf.import_graph_def(od_graph_def, name='')
-        return detection_graph
-
-    def _load_category_map(self, path_to_labels):
-        categoryIndex = label_map_util.create_category_index_from_labelmap(
-            path_to_labels, use_display_name=True)
-        return categoryIndex
-

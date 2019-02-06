@@ -30,4 +30,4 @@ ehthumbs.db
 *.pyc
 *.pem
 
-app/static/model/
+app/__pycache__/
