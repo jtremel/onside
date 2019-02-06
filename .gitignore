@@ -30,4 +30,4 @@ ehthumbs.db
 *.pyc
 *.pem
 
-app/model/
+app/static/model/
