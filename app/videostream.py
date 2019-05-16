@@ -1,6 +1,6 @@
 import cv2
 import pafy
-import tensorflow as tf
+#import tensorflow as tf
 import numpy as np
 import time
 from openvino.inference_engine import IENetwork, IEPlugin
